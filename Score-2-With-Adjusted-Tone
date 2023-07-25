@@ -1,0 +1,394 @@
+import argparse
+import numpy as np
+import pandas as pd
+import time
+
+def generate():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--embeddings_file', default='glove.6B.200d.txt', type=str)
+    args = parser.parse_args()
+
+    words = []
+    vectors = []
+    with open(args.embeddings_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            values = line.rstrip().split(' ')
+            word = values[0]
+            vector = np.array([float(val) for val in values[1:]])
+            words.append(word)
+            vectors.append(vector)
+
+    vocab_size = len(words)
+    vocab = {w: idx for idx, w in enumerate(words)}
+    ivocab = {idx: w for idx, w in enumerate(words)}
+
+    W = np.array(vectors)
+
+    # Normalize each word vector to unit variance
+    W_norm = W / np.linalg.norm(W, axis=1, keepdims=True)
+
+    return W_norm, vocab, ivocab
+
+
+def distance(W, vocab, ivocab, input_file, female_bias_word_index, male_bias_word_index):
+    data = pd.read_csv(input_file, encoding='latin1')
+
+    similarity_scores = []
+
+    for idx, row in data.iterrows():
+        row_text = ' '.join(row.dropna().astype(str).values)
+        input_words = row_text.split(' ')
+        female_total_score = 0
+        male_total_score = 0
+        word_count = 0
+
+        coefficient = row.iloc[11]
+        if pd.notnull(coefficient):
+            try:
+                coefficient = [float(x) for x in coefficient.strip('[]').split(', ')]
+            except ValueError:
+                print(f"Error processing row {idx}. Invalid coefficient value: {coefficient}")
+                continue
+        else:
+            coefficient = []
+
+        for word in input_words:
+            if word in vocab:
+                embedding = W[vocab[word], :]
+                female_scores = [np.dot(embedding, W[vocab[bias_word], :]) * c for bias_word, c in zip(female_bias_word_index, coefficient) if bias_word in vocab]
+                male_scores = [np.dot(embedding, W[vocab[bias_word], :]) * c for bias_word, c in zip(male_bias_word_index, coefficient) if bias_word in vocab]
+
+                if female_scores:
+                    female_score = np.max(female_scores)
+                    female_total_score += female_score
+                    word_count += 1
+
+                if male_scores:
+                    male_score = np.max(male_scores)
+                    male_total_score += male_score
+
+        if word_count > 0:
+            female_normalized_score = female_total_score / word_count
+            male_normalized_score = male_total_score / word_count
+        else:
+            female_normalized_score = 0.0
+            male_normalized_score = 0.0
+
+        similarity_scores.append((female_normalized_score, male_normalized_score))
+
+    data['Female Similarity Score'] = [score[0] for score in similarity_scores]
+    data['Male Similarity Score'] = [score[1] for score in similarity_scores]
+
+    output_file = 'forbes_similarity_scores_with_tone.csv'
+    data.to_csv(output_file, index=False)
+    print(f'Similarity scores saved to {output_file}')
+
+if __name__ == "__main__":
+    N = 100  # number of closest words that will be shown
+    W, vocab, ivocab = generate()
+    female_bias_word_index = ["accurate",
+    "accuracy",
+    "accurately",
+    "accuracies",
+    "attentive",
+    "caring",
+    "committed",
+    "creative",
+    "dedicated",
+    "diplomatically",
+    "diplomatic",
+    "diplomacy",
+    "follow",
+    "follower",
+    "following",
+    "friendly",
+    "organized",
+    "patient",
+    "polite",
+    "thoughtful",
+    "welcome",
+    "five days per week",
+    "8.00 am to 6.00 pm",
+    "bonus",
+    "child",
+    "childcare",
+    "childcare vouchers",
+    "commission",
+    "package",
+    "contracted (hours)",
+    "family friendly",
+    "family values",
+    "flexibility",
+    "flexible",
+    "flexible benefits",
+    "flexible schedule",
+    "flexible hours",
+    "guaranteed hours",
+    "maternity (leave)",
+    "Monday to Friday",
+    "paternal (leave)",
+    "permanent",
+    "regular hours",
+    "relocation package",
+    "remote work",
+    "scheme",
+    "standard hours",
+    "statutory sick pay",
+    "work/life balance",
+    "gal",
+    "women",
+    "woman",
+    "lady",
+    "her",
+    "she",
+    "affectionate",
+    "cheerful",
+    "childlike",
+    "compassionate",
+    "does not use harsh language",
+    "eager to soothe hurt feelings",
+    "feminine",
+    "flatterable",
+    "gentle",
+    "gullible",
+    "loves children",
+    "loyal",
+    "sensitive to the needs of others",
+    "shy",
+    "soft spoken",
+    "sympathetic",
+    "tender",
+    "understanding",
+    "warm",
+    "yielding",
+    "personable",
+    "person-centered",
+    "people-person"]  # Example bias word index
+    male_bias_word_index = ["authoritative",
+    "best",
+    "busy",
+    "calm",
+    "can-do",
+    "communicate",
+    "composed",
+    "confidence",
+    "detail",
+    "driven",
+    "dynamic",
+    "eager",
+    "effective",
+    "efficient",
+    "eloquent",
+    "empower",
+    "energetic",
+    "engage",
+    "enthusiasm",
+    "exceed",
+    "excel",
+    "exceptional",
+    "exciting",
+    "firm",
+    "forward thinking",
+    "fun",
+    "hard-working",
+    "high quality",
+    "initiative",
+    "innovative",
+    "inspirational",
+    "limitless",
+    "motivate",
+    "outgoing",
+    "outstanding",
+    "passion",
+    "practical",
+    "pragmatic",
+    "proactive",
+    "productivity mindset",
+    "reliable",
+    "resilient",
+    "resolve",
+    "resourcefulness",
+    "respected",
+    "self-motivated",
+    "self-starter",
+    "serious",
+    "strong",
+    "tactful",
+    "talented",
+    "timekeeping",
+    "time management",
+    "vibrant",
+    "winning",
+    "physical",
+    "challenging",
+    "crouching",
+    "demanding",
+    "driving",
+    "exertion",
+    "exerting",
+    "fit",
+    "physically fit",
+    "hands on",
+    "heavy load",
+    "heavy loading",
+    "lift",
+    "kneel",
+    "move",
+    "negotiate",
+    "numerate",
+    "pressure",
+    "pulling",
+    "pushing",
+    "reaching",
+    "risk",
+    "safety precautions",
+    "speed",
+    "stamina",
+    "stoop",
+    "stress",
+    "transport",
+    "twisting",
+    "weight handling",
+    "international (travel)",
+    "travel",
+    "additional hours",
+    "after hours",
+    "call outs",
+    "different areas",
+    "different locations",
+    "evenings",
+    "fixed term",
+    "holiday cover",
+    "live-in",
+    "location change",
+    "multisite",
+    "night (shifts)",
+    "on-site visits",
+    "overtime",
+    "sickness cover",
+    "standby",
+    "temporary",
+    "urgent",
+    "waking nights",
+    "weekends",
+    "willing to travel",
+    "guy",
+    "men",
+    "man",
+    "his",
+    "he",
+    "acts as a leader",
+    "aggressive",
+    "ambitious",
+    "analytical",
+    "assertive",
+    "athletic",
+    "competitive",
+    "defends own beliefs",
+    "dominant",
+    "forceful",
+    "has leadership abilities",
+    "independent",
+    "individualistic",
+    "makes decisions easily",
+    "masculine",
+    "self-reliant",
+    "self-sufficient",
+    "strong personality",
+    "willing to take a stand",
+    "willing to take risks",
+    "accountable",
+    "accountability",
+    "accountably",
+    "accountabilities",
+    "accountableness",
+    "calming",
+    "communication",
+    "communicative",
+    "communicator",
+    "communicable",
+    "communicability",
+    "communicatively",
+    "communicatory",
+    "communication skills",
+    "communicational",
+    "communicatee",
+    "communicative competence",
+    "confident",
+    "confidently",
+    "confidence-building",
+    "confidentness",
+    "energy",
+    "energize",
+    "energizing",
+    "energetically",
+    "energizer",
+    "energizedly",
+    "energistic",
+    "effectively",
+    "efficiently",
+    "engaging",
+    "engaged",
+    "engagement",
+    "engagingly",
+    "enthusiastic",
+    "enthusiastically",
+    "enthusiast",
+    "passionate",
+    "problem-solving",
+    "problem solver",
+    "problem-solve",
+    "problem-solving skills",
+    "problem-solving approach",
+    "problem-solving abilities",
+    "problem-solving techniques",
+    "problem-solving mindset",
+    "problem-solving strategies",
+    "problem-solving capacity",
+    "productive",
+    "productivity",
+    "productively",
+    "productivity improvement",
+    "productivity growth",
+    "productivity tools",
+    "reliability",
+    "reliably",
+    "reliable performance",
+    "reliable communication",
+    "resilience skills",
+    "resilience",
+    "resiliently",
+    "resilient mindset",
+    "resilient behavior",
+    "resilient attitude",
+    "resilience capacity",
+    "motivative",
+    "motivation",
+    "motivated",
+    "motivating",
+    "motivator",
+    "motivational",
+    "lifting",
+    "lifted",
+    "kneeling",
+    "moving",
+    "negotiation",
+    "negotiating",
+    "numerical",
+    "risking",
+    "risked",
+    "stooped",
+    "stooping",
+    "stressed",
+    "stressful",
+    "stressor",
+    "stressing",
+    "stress-free",
+    "stress management",
+    "stress relief",
+    "stress level",
+    "stress response",
+    "willingness to travel"]
+
+    input_file = 'Forbes_with_tones.csv'  # Replace with your CSV file path
+    distance(W, vocab, ivocab, input_file, female_bias_word_index, male_bias_word_index)
