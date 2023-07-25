@@ -1,0 +1,139 @@
+# import all necessary libraries
+!pip install vaderSentiment
+!pip install TextBlob
+!pip install vaderSentiment
+import pandas as pd
+from textblob import TextBlob
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import spacy
+
+# Load the spaCy English model
+nlp = spacy.load('en_core_web_sm')
+stop_words = spacy.lang.en.stop_words.STOP_WORDS
+
+def calculate_tone_weight(token, sentence, stop_words):
+    if token.is_punct:
+        return None
+    
+    word_sentiment = SentimentIntensityAnalyzer().polarity_scores(token.text)["compound"]
+    sentence_sentiment = TextBlob(sentence).sentiment.polarity
+
+    context_score = 0.0
+    if token.i > 0:
+        prev_word = token.nbor(-1)
+        prev_word_sentiment = SentimentIntensityAnalyzer().polarity_scores(prev_word.text)["compound"]
+        context_score += prev_word_sentiment
+    if token.i < len(token.doc) - 1:
+        next_word = token.nbor(1)
+        next_word_sentiment = SentimentIntensityAnalyzer().polarity_scores(next_word.text)["compound"]
+        context_score += next_word_sentiment
+
+    if sentence_sentiment != 0:
+        tone_weight = (word_sentiment + context_score) / sentence_sentiment
+    else:
+        tone_weight = 0.0
+
+    return tone_weight
+
+def get_context_score(token):
+    context_score = 0
+    
+    # Get the surrounding tokens (previous and next)
+    prev_token = token.nbor(-1)
+    next_token = token.nbor(1)
+    
+    # Perform contextual analysis based on neighboring tokens
+    if prev_token and prev_token.pos_ == 'ADJ':
+        context_score += 1
+    
+    if next_token and next_token.pos_ == 'VERB':
+        context_score += 1
+    
+    return context_score
+
+import pandas as pd
+from tqdm import tqdm
+from nltk.corpus import stopwords
+import time
+
+# Load the spaCy English model
+nlp = spacy.load('en_core_web_sm')
+stop_words = spacy.lang.en.stop_words.STOP_WORDS
+
+def analyze_single_job_description(job_description, stop_words):
+    doc = nlp(job_description)
+    sentences = list(doc.sents)
+
+    sentence_sentiments = [TextBlob(sentence.text).sentiment.polarity for sentence in sentences]
+
+    word_tone_weights = [
+        (token.text, calculate_tone_weight(token, sentence.text, stop_words))
+        for sentence in sentences
+        for token in sentence
+        if token.text.lower().strip() and token.text.lower().strip() not in stop_words
+    ]
+    
+    return sentence_sentiments, word_tone_weights
+
+# Specify the paths of the input and output CSV files
+input_csv_path = '/kaggle/input/cb-last/Careerbuilder_last.csv'
+output_csv_path = '/kaggle/working/Career_Builder_Added_Tone3.csv'
+
+# Open the input CSV file using pandas
+df = pd.read_csv(input_csv_path, encoding='latin-1')
+
+# Initialize the progress bar
+progress_bar = tqdm(total=len(df), desc='Processing')
+
+# Analyze each job description and add the new columns to the DataFrame
+sentiment_scores = []
+tone_weights = []
+stop_words = set(stopwords.words("english"))
+
+output_interval = 100
+output_count = 0
+
+start_time = time.time()
+max_duration = 10 * 3600
+
+# Start from the beginning if no progress file is found
+for i, job_description in enumerate(df['description']):
+    sentence_sentiments, word_tone_weights = analyze_single_job_description(job_description, stop_words)
+    sentiment_scores.append(sentence_sentiments)
+    tone_weights.append(word_tone_weights)
+
+    # Update the progress bar
+    progress_bar.update(1)
+
+    # Check if it's time to save the output or if the maximum time has been reached
+    elapsed_time = time.time() - start_time
+    if (i + 1) % output_interval == 0 or elapsed_time >= max_duration:
+        output_count += 1
+        # Create a temporary DataFrame for the current chunk
+        temp_df = pd.DataFrame({
+            'Sentiment Score': sentiment_scores,
+            'Tone Weight': tone_weights
+        })
+
+        # Write the temporary DataFrame to a new CSV file with a unique name
+        temp_output_csv_path = output_csv_path.replace('.csv', f'_{output_count}.csv')
+        temp_df.to_csv(temp_output_csv_path, index=False)
+
+        # Clear the lists for the next chunk
+        sentiment_scores.clear()
+        tone_weights.clear()
+
+        # End the session if the maximum time has been reached
+        if elapsed_time >= max_duration:
+            print("Maximum time limit reached. Session ended.")
+            break
+
+# Add the remaining data to the DataFrame
+df['Sentiment Score'] = sentiment_scores
+df['Tone Weight'] = tone_weights
+
+# Write the final DataFrame to the output CSV file (appends to the original CSV)
+df.to_csv(output_csv_path, mode='a', header=False, index=False)
+
+# Close the progress bar
+progress_bar.close()
