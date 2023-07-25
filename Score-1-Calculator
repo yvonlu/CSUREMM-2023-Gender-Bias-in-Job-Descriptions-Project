@@ -1,0 +1,62 @@
+import pandas as pd
+import numpy as np
+import ast
+from tqdm import tqdm
+
+# Read the CSV file with the specified encoding and delimiter
+job_descriptions_csv = '/kaggle/input/forbes-top100us/Forbes Job Descriptions - Sheet1.tsv'
+job_descriptions_df = pd.read_csv(job_descriptions_csv, encoding=encoding, delimiter='\t', error_bad_lines=False)
+
+# Display column names and first few rows of the DataFrame
+print(job_descriptions_df.columns)
+print(job_descriptions_df.head())
+
+job_descriptions = job_descriptions_df['Description'].tolist()
+gendered_words_csv = '/kaggle/input/hyphengenderlist/hyphengenderlist.csv'
+gendered_words_df = pd.read_csv(gendered_words_csv)
+
+masculine_words = gendered_words_df['Male'].tolist()
+feminine_words = gendered_words_df['Female'].tolist()
+
+# Ensure 'Description' column is of string type
+job_descriptions_df['Description'] = job_descriptions_df['Description'].astype(str)
+
+num_masculine_words_list = []
+num_feminine_words_list = []
+s1_scores = []
+
+for description in tqdm(job_descriptions_df['Description'], desc='Processing', unit='job description'):
+    # Check if the description is not NaN or None before splitting
+    if pd.notna(description):
+        words = description.split()
+
+        num_masculine_words = sum(word in masculine_words for word in words)
+        num_feminine_words = sum(word in feminine_words for word in words)
+
+        if num_feminine_words != 0: 
+            fem_val = (num_feminine_words - num_masculine_words) / num_feminine_words
+        else:
+            fem_val = 0
+        if num_masculine_words != 0:
+            mas_val = (num_masculine_words - num_feminine_words) / num_masculine_words
+        else:
+            mas_val = 0
+
+        s1_magnitude = max(fem_val, mas_val)
+
+        if (num_feminine_words - num_masculine_words) < 0:
+            s1_score = -1 * s1_magnitude
+        else:
+            s1_score = s1_magnitude
+
+        num_masculine_words_list.append(num_masculine_words)
+        num_feminine_words_list.append(num_feminine_words)
+        s1_scores.append(s1_score)
+
+# Add the calculated columns to the DataFrame
+job_descriptions_df['Num_Masculine_Words'] = num_masculine_words_list
+job_descriptions_df['Num_Feminine_Words'] = num_feminine_words_list
+job_descriptions_df['S1_Score'] = s1_scores
+
+updated_job_descriptions_csv = '/kaggle/working/ForbesS1.csv'
+job_descriptions_df.to_csv(updated_job_descriptions_csv, index=False)
